@@ -177,19 +177,20 @@ class Teamcity
   end
 
   def projects
-    doc(get('/app/rest/projects')).elements.collect('//project') do |e|
+    doc(get(api_path('projects'))).elements.collect('//project') do |e|
       TeamcityRestClient::Project.new(self, e.av("name"), e.av("id"), url(e.av("href")))
     end
   end
 
   def build_types
-    doc(get('/app/rest/buildTypes')).elements.collect('//buildType') do |e|
+    doc(get(api_path('buildTypes'))).elements.collect('//buildType') do |e|
       TeamcityRestClient::BuildType.new(self, e.av("id"), e.av("name"), url(e.av("href")), e.av('projectName'), e.av('projectId'), e.av('webUrl'))
     end
   end
 
   def builds options = {}
-    doc(get('/app/rest/builds', options).gsub(/&buildTypeId/,'&amp;buildTypeId')).elements.collect('//build') do |e|
+    doc(get(api_path('builds'), options).gsub(/&buildTypeId/,'&amp;buildTypeId')).elements.collect('//build') do |e|
+      $stdout.puts "build #{e.inspect}"
       TeamcityRestClient::Build.new(self, e.av('id'), e.av('number'), e.av('status').to_sym, e.av('buildTypeId'), e.av_or('startDate', ''), url(e.av('href')), e.av('webUrl'))
     end
   end
@@ -199,6 +200,10 @@ class Teamcity
   end
 
   private
+  def api_path item
+    "/app/rest/7.0/#{item}"
+  end
+
   def doc string
     REXML::Document.new string
   end
