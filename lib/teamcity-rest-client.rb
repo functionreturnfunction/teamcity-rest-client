@@ -81,19 +81,41 @@ module TeamcityRestClient
     end
   end
 
-  BuildType = Struct.new(:teamcity, :id, :name, :href, :project_name, :project_id, :web_url) do
+  class BuildType
+    def initialize teamcity
+      @teamcity = teamcity
+      yield self if block_given?
+    end
+
+    attr_accessor :id, :name, :href, :project_name, :project_id, :web_url
+
     def builds options = {}
       teamcity.builds({:buildType => "id:#{id}"}.merge(options))
     end
+
     def latest_build
       builds(:count => 1)[0]
     end
+
+    protected
+
+    attr_reader :teamcity
   end
 
-  Build = Struct.new(:teamcity, :id, :number, :status, :build_type_id, :start_date, :href, :web_url) do
+  class Build
+    def initialize teamcity
+      @teamcity = teamcity
+      yield self if block_given?
+    end
+
     def success?
       status == :SUCCESS
     end
+
+    attr_accessor :id, :number, :status, :build_type_id, :start_date, :finish_date, :href, :web_url
+
+    protected
+    attr_reader :teamcity
   end
 
   class Authentication
@@ -155,6 +177,11 @@ class REXML::Element
     att = attribute(name)
     att ? att.value : otherwise
   end
+
+  def et_or name, otherwise
+    elem = elements[name]
+    elem ? elem.text : otherwise
+  end
 end
 
 class Teamcity
@@ -184,14 +211,42 @@ class Teamcity
 
   def build_types
     doc(get(api_path('buildTypes'))).elements.collect('//buildType') do |e|
-      TeamcityRestClient::BuildType.new(self, e.av("id"), e.av("name"), url(e.av("href")), e.av('projectName'), e.av('projectId'), e.av('webUrl'))
+      TeamcityRestClient::BuildType.new(self) do |b| # do |b| do
+        b.id = e.av("id")
+        b.name = e.av("name")
+        b.href = url(e.av("href"))
+        b.project_name = e.av('projectName')
+        b.project_id = e.av('projectId')
+        b.web_url = e.av('webUrl')
+      end
     end
   end
 
   def builds options = {}
     doc(get(api_path('builds'), options).gsub(/&buildTypeId/,'&amp;buildTypeId')).elements.collect('//build') do |e|
-      $stdout.puts "build #{e.inspect}"
-      TeamcityRestClient::Build.new(self, e.av('id'), e.av('number'), e.av('status').to_sym, e.av('buildTypeId'), e.av_or('startDate', ''), url(e.av('href')), e.av('webUrl'))
+      TeamcityRestClient::Build.new(self) do |b|
+        b.id = e.av('id')
+        b.number = e.av('number')
+        b.status = e.av('status').to_sym
+        b.build_type_id = e.av('buildTypeId')
+        b.href = url(e.av('href'))
+        b.web_url = e.av('webUrl')
+      end
+    end
+  end
+
+  def build id
+    bld = doc(get(api_path('builds') + '/' + id).gsub(/&buildTypeId/,'&amp;buildTypeId')).elements.first
+    TeamcityRestClient::Build.new(self) do |b|
+      b.id = bld.av('id')
+      b.number = bld.av('number')
+      b.status = bld.av('status').to_sym
+      b.build_type_id = bld.av('buildTypeId')
+      b.href = url(bld.av('href'))
+      b.web_url = bld.av('webUrl')
+
+      b.start_date = bld.et_or('startDate', '')
+      b.finish_date = bld.et_or('finishDate', '')
     end
   end
 
@@ -201,7 +256,7 @@ class Teamcity
 
   private
   def api_path item
-    "/app/rest/7.0/#{item}"
+    "/app/rest/#{item}"
   end
 
   def doc string
